@@ -1,0 +1,5 @@
+tls:
+  certificates:
+    - certFile: "/certs/nail360.crt"
+      keyFile: "/certs/nail360.key"
+

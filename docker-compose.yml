@@ -1,0 +1,94 @@
+services:
+  traefik:
+    image: "traefik:${TRAEFIK_VERSION}"
+    container_name: "traefik"
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - proxy
+    command:
+      - "--api.insecure=false"
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=proxy"
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--entryPoints.web.address=:80"
+      - "--entryPoints.websecure.address=:443"
+      - "--entryPoints.websecure.http.tls=true"
+    ports:
+      - "80:80"
+      - "443:443"
+#      - "8080:8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./certs:/certs:ro"
+      - "./dynamic:/etc/traefik/dynamic:ro"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.dashboard.entrypoints=websecure"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.tls=true"
+
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf 
+      - ./php:/var/www/html
+    depends_on:
+      - php-fpm 
+    labels:
+      # - "traefik.enable=true"
+      # - "traefik.http.routers.php.entrypoints=web"
+      # - "traefik.http.routers.php.rule=Host(`api.nail350prod.com`) && PathPrefix(`/php`)"
+      # - "traefik.http.services.php.loadbalancer.server.port=80"
+      # - "traefik.http.middlewares.php-stripprefix.stripprefix.prefixes=/php"
+      # - "traefik.http.routers.php.middlewares=php-stripprefix"
+
+      - "traefik.enable=true"
+      - "traefik.http.routers.php.rule=Host(`${API_DOMAIN}`)"
+      #- "traefik.http.routers.php.rule=Host(`api.nail360prod.com`) && PathPrefix(`/php`)"
+      - "traefik.http.routers.php.entrypoints=websecure"
+      - "traefik.http.routers.php.tls=true"
+      - "traefik.http.services.php.loadbalancer.server.port=80"
+      - "traefik.http.middlewares.php-stripprefix.stripprefix.prefixes=/php"
+      - "traefik.http.routers.php.middlewares=php-stripprefix"
+    networks:
+      - proxy
+  php-fpm:
+    image: php:8.1-fpm
+    volumes:
+      - ./php:/var/www/html
+      - ./opcache/opcache.${ENV_MODE}.ini:/usr/local/etc/php/conf.d/opcache.ini
+    environment:
+      - CONTAINER_NAME_FULL
+    networks:
+      - proxy
+    deploy:
+      replicas: 2
+  springboot-app1: # Service Load Balancing
+    image: native-builder:latest
+    command: ["/app"]
+    labels:
+      - "traefik.enable=true"
+
+      # Router cho HTTPS
+      - "traefik.http.routers.springboot-app1.rule=Host(`${API_DOMAIN}`) && PathPrefix(`/spring`)"
+      - "traefik.http.routers.springboot-app1.entrypoints=websecure"
+      - "traefik.http.routers.springboot-app1.tls=true"
+
+      # Middleware strip /spring
+      - "traefik.http.routers.springboot-app1.middlewares=strip-spring"
+      - "traefik.http.middlewares.strip-spring.stripprefix.prefixes=/spring"
+
+      # Service trỏ đến cổng 8080 của container
+      - "traefik.http.services.springboot-app1.loadbalancer.server.port=${SPRING_PORT}"
+    networks:
+      - proxy
+networks:
+  proxy:
+    name: proxy
+
+

@@ -1,0 +1,33 @@
+events {}
+
+http {
+  upstream php-upstream {
+    server php-fpm1:9000;
+    server php-fpm2:9000;
+  }
+
+  server {
+    listen 80;
+    server_name localhost;
+
+    root /var/www/html;
+    index index.php index.html;
+
+    location / {
+      try_files $uri $uri/ =404;
+    }
+
+    location /php {
+      alias /var/www/html;
+      index index.php;
+    }
+
+    location ~ ^/php(/.*\.php)$ {
+      alias /var/www/html$1;
+      include fastcgi_params;
+      fastcgi_pass php-upstream;
+      fastcgi_index index.php;
+      fastcgi_param SCRIPT_FILENAME /var/www/html$1;
+    }
+  }
+}
